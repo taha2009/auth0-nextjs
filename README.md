@@ -1,5 +1,16 @@
 # Auth0 + Next.js
 
+**Production-ready Auth0 authentication for Next.js 15 — no SDK, no magic, just the real OAuth 2.0 flow written out so you can read and own it.**
+
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+[![Next.js](https://img.shields.io/badge/Next.js-15-black?logo=next.js&logoColor=white)](https://nextjs.org)
+[![TypeScript](https://img.shields.io/badge/TypeScript-5-3178C6?logo=typescript&logoColor=white)](https://www.typescriptlang.org)
+[![Auth0](https://img.shields.io/badge/Auth0-free_tier-EB5424?logo=auth0&logoColor=white)](https://auth0.com)
+
+---
+
+## Why this exists
+
 If you are building an app — your own idea, a side project, something for your team — and you are thinking about adding login, **please don't build auth yourself.**
 
 Not because it's too hard. Because it's too easy to get wrong in ways that are invisible until someone gets hurt. Password hashing, token storage, session fixation, brute force protection, secure cookie flags, CSRF — each one is a chapter in a security textbook, and getting any of them slightly wrong quietly exposes your users.
@@ -10,7 +21,7 @@ This repo exists so you don't have to think about any of that.
 
 ## Use Auth0. Here's why.
 
-[Auth0](https://auth0.com) is free for most personal and small projects (up to 25,000 monthly active users on the free tier). It handles:
+[Auth0](https://auth0.com) is **free** for most personal and small projects (up to 25,000 monthly active users on the free tier). It handles:
 
 - Passwords, hashing, and breach detection
 - Social login (Google, GitHub, etc.) in a few clicks
@@ -25,21 +36,27 @@ The only thing Auth0 doesn't do is wire itself into your app. That's what this r
 
 ---
 
-## What this repo is
+## Quick start
 
-A working Next.js 15 app that shows exactly how to connect Auth0 to your application — no magic, no black-box SDK, just the real OAuth 2.0 Authorization Code flow written out so you can read it, understand it, and adapt it.
+```bash
+git clone https://github.com/taha2009/auth0-nextjs.git
+cd auth0-nextjs
+cp .env.example .env.local   # fill in your Auth0 credentials
+npm install
+npm run dev
+```
 
-Built with a **server-side session store** and a **BFF (Backend for Frontend)** pattern:
+Open [http://localhost:3000](http://localhost:3000). Done.
 
-- The JWT (the token Auth0 gives you after login) **never leaves the server**
-- The browser only ever holds an opaque session ID — useless on its own
-- All API calls from the browser go through Next.js API routes, which attach the token before forwarding to any backend service
+> **New to Auth0?** See [Setup](#setup) below for a 5-minute walkthrough of creating a free Auth0 account and getting your credentials.
 
-You can copy this directly, or use it as a reference when building your own.
+[![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/new/clone?repository-url=https%3A%2F%2Fgithub.com%2Ftaha2009%2Fauth0-nextjs&env=AUTH0_DOMAIN,AUTH0_CLIENT_ID,AUTH0_CLIENT_SECRET,AUTH0_AUDIENCE,AUTH0_SCOPE,APP_BASE_URL&envDescription=Auth0%20credentials%20and%20your%20app%20URL&project-name=auth0-nextjs&repository-name=auth0-nextjs)
 
 ---
 
-## How the login flow works
+## Architecture
+
+This repo uses a **server-side session store** and a **BFF (Backend for Frontend)** pattern. The JWT Auth0 issues after login never reaches the browser — the browser only holds an opaque session ID, useless without the server.
 
 ```mermaid
 sequenceDiagram
@@ -71,13 +88,13 @@ sequenceDiagram
     Next.js-->>Browser: 200 data
 ```
 
-The browser never sees the JWT. It sends a session cookie, Next.js looks up the token on the server, verifies it, and makes the downstream call. Your resource server (an API, a database proxy, whatever) only ever talks to Next.js — never directly to the browser.
+All API calls from the browser go through Next.js API routes, which attach the JWT before forwarding to any backend service. The browser never sees the token, the resource server URL, or anything about Auth0.
 
 ---
 
 ## Session design
 
-| | JWT in cookie (common but weaker) | This implementation |
+| | JWT in cookie *(common but weaker)* | This implementation |
 |---|---|---|
 | Cookie content | The JWT itself | Opaque session ID (UUID) |
 | JWT visible in DevTools | Yes | No |
@@ -112,7 +129,7 @@ The in-memory store in `lib/session-store.ts` is intentionally simple to swap ou
 
 ## Patterns
 
-### Server Component
+### Server Component (recommended for pages)
 
 ```ts
 // app/dashboard/page.tsx
@@ -154,7 +171,7 @@ export async function GET(request: NextRequest) {
 
   await verifyToken(data.token); // throws if expired or invalid
 
-  // Forward to your resource server with the JWT — browser never sees this URL or token
+  // Forward to your resource server — browser never sees this URL or the JWT
   const res = await fetch(`${process.env.RESOURCE_SERVER_URL}/endpoint`, {
     headers: { Authorization: `Bearer ${data.token}` },
   });
@@ -163,30 +180,33 @@ export async function GET(request: NextRequest) {
 }
 ```
 
-The browser calls `/api/your-resource`. Next.js resolves the session to a JWT and forwards to the real backend. The resource server URL and JWT stay server-side.
-
 ---
 
 ## Setup
 
-### 1. Create an Auth0 application
+### 1. Create a free Auth0 account
 
-1. Go to [Auth0 Dashboard](https://manage.auth0.com/) → **Applications** → **Create Application**
+Sign up at [auth0.com](https://auth0.com) — no credit card required.
+
+### 2. Create an Auth0 application
+
+1. Dashboard → **Applications** → **Create Application**
 2. Choose **Regular Web Application**
 3. In **Settings**, set:
    - **Allowed Callback URLs:** `http://localhost:3000/api/auth/callback`
    - **Allowed Logout URLs:** `http://localhost:3000`
    - **Allowed Web Origins:** `http://localhost:3000`
+4. Copy **Domain**, **Client ID**, and **Client Secret** into your `.env.local`
 
-### 2. Create an Auth0 API (optional but recommended)
+### 3. Create an Auth0 API *(optional but recommended)*
 
-Without an API audience, Auth0 issues an opaque access token that cannot be verified locally. With one, it issues a JWT.
+Without an API audience, Auth0 issues an opaque access token that cannot be verified locally. With one, it issues a signed JWT.
 
-1. Go to **APIs** → **Create API**
-2. Set an **Identifier** (e.g. `https://myapp.example.com`) — this becomes `AUTH0_AUDIENCE`
-3. Keep the default signing algorithm (RS256)
+1. Dashboard → **APIs** → **Create API**
+2. Set an **Identifier** — any URL-style string, e.g. `https://myapp.example.com`
+3. This identifier becomes your `AUTH0_AUDIENCE` env var
 
-### 3. Configure environment variables
+### 4. Configure environment variables
 
 ```bash
 cp .env.example .env.local
@@ -196,19 +216,48 @@ cp .env.example .env.local
 AUTH0_DOMAIN=your-tenant.auth0.com
 AUTH0_CLIENT_ID=your-client-id
 AUTH0_CLIENT_SECRET=your-client-secret
-AUTH0_AUDIENCE=https://myapp.example.com   # from step 2, or leave empty
+AUTH0_AUDIENCE=https://myapp.example.com   # from step 3, or leave empty
 AUTH0_SCOPE=openid profile email
 APP_BASE_URL=http://localhost:3000
 ```
 
-### 4. Run
+---
+
+## Deployment
+
+### Vercel *(easiest)*
+
+Click the deploy button at the top, or:
 
 ```bash
-npm install
-npm run dev
+npm i -g vercel
+vercel
 ```
 
-Open [http://localhost:3000](http://localhost:3000) and click **Sign in with Auth0**.
+Set the environment variables in the Vercel dashboard under **Settings → Environment Variables**. Update your Auth0 app's Allowed URLs to your production domain.
+
+### Docker
+
+```dockerfile
+FROM node:20-alpine AS builder
+WORKDIR /app
+COPY . .
+RUN npm ci && npm run build
+
+FROM node:20-alpine
+WORKDIR /app
+COPY --from=builder /app/.next/standalone ./
+COPY --from=builder /app/.next/static ./.next/static
+COPY --from=builder /app/public ./public
+EXPOSE 3000
+CMD ["node", "server.js"]
+```
+
+Pass env vars at runtime via `-e` flags or a Kubernetes secret. The app reads all Auth0 config from the environment at request time — no rebuild needed to switch tenants or credentials.
+
+### Kubernetes / multiple replicas
+
+The in-memory session store works for a single pod. For multiple replicas, replace `lib/session-store.ts` with a Redis adapter — the interface is three functions (`createSession`, `getSessionData`, `deleteSessionData`) so the swap is contained to one file.
 
 ---
 
@@ -226,11 +275,14 @@ Open [http://localhost:3000](http://localhost:3000) and click **Sign in with Aut
 
 ---
 
-## Production considerations
+## Roadmap
 
-- **Replicas:** the in-memory store does not survive process restarts and is not shared across pods. Replace `lib/session-store.ts` with a Redis adapter before running more than one replica.
-- **Session expiry:** the current store has no TTL. Add expiry logic in `getSessionData` or rely on the JWT's own `exp` claim (already enforced by `verifyToken`).
-- **HTTPS:** the session cookie is marked `secure` automatically when `NODE_ENV=production`.
+- [ ] Redis session store adapter
+- [ ] Role-based access control using Auth0 roles and permissions
+- [ ] Refresh token rotation
+- [ ] Multi-tenant support with Auth0 Organizations
+
+PRs welcome.
 
 ---
 

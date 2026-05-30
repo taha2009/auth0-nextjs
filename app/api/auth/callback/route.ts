@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { createSession } from '@/lib/session-store';
 
 export async function GET(request: NextRequest) {
   const { AUTH0_DOMAIN, AUTH0_CLIENT_ID, AUTH0_CLIENT_SECRET, APP_BASE_URL } =
@@ -49,14 +50,16 @@ export async function GET(request: NextRequest) {
       throw new Error(tokens.error_description || 'Token exchange failed');
     }
 
+    // Store the JWT in the server-side session store and give the browser
+    // an opaque session ID — the token never travels to the client.
+    const sessionId = createSession(tokens.access_token);
+
     const response = NextResponse.redirect(`${APP_BASE_URL}/dashboard`);
 
-    // Clean up the state cookie
+    // Clean up the CSRF state cookie
     response.cookies.set('auth_state', '', { maxAge: 0, path: '/' });
 
-    // Store the access token in an HTTP-only cookie.
-    // HTTP-only prevents JavaScript from reading it, mitigating XSS token theft.
-    response.cookies.set('auth_token', tokens.access_token, {
+    response.cookies.set('session_id', sessionId, {
       httpOnly: true,
       secure: process.env.NODE_ENV === 'production',
       sameSite: 'lax',

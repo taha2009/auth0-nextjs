@@ -1,31 +1,31 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { verifyToken } from '@/lib/auth';
+import { getSessionData } from '@/lib/session-store';
 
 /**
  * Returns the current user's profile.
  *
- * Verifies the JWT locally (no Auth0 roundtrip), then fetches the full
- * profile from Auth0's /userinfo endpoint which includes name, email, picture.
- *
- * This is the pattern for Client Components that need user data — they
- * fetch this route rather than calling verifyToken() directly (which is
- * server-only via 'next/headers').
+ * Reads the session ID from the cookie, looks up the JWT in the server-side
+ * session store, verifies it, then fetches the full profile from Auth0's
+ * /userinfo endpoint. The JWT never leaves the server.
  */
 export async function GET(request: NextRequest) {
-  const token = request.cookies.get('auth_token')?.value;
-
-  if (!token) {
+  const sessionId = request.cookies.get('session_id')?.value;
+  if (!sessionId) {
     return NextResponse.json({ error: 'Not authenticated' }, { status: 401 });
   }
 
-  try {
-    // Verify the token is valid and not expired
-    await verifyToken(token);
+  const data = getSessionData(sessionId);
+  if (!data) {
+    return NextResponse.json({ error: 'Session not found' }, { status: 401 });
+  }
 
-    // Fetch the full user profile from Auth0
+  try {
+    await verifyToken(data.token);
+
     const userInfoRes = await fetch(
       `https://${process.env.AUTH0_DOMAIN}/userinfo`,
-      { headers: { Authorization: `Bearer ${token}` } }
+      { headers: { Authorization: `Bearer ${data.token}` } }
     );
 
     if (!userInfoRes.ok) {
@@ -35,8 +35,7 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    const userInfo = await userInfoRes.json();
-    return NextResponse.json(userInfo);
+    return NextResponse.json(await userInfoRes.json());
   } catch {
     return NextResponse.json({ error: 'Invalid or expired token' }, { status: 401 });
   }

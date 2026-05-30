@@ -2,25 +2,30 @@ import { cookies } from 'next/headers';
 import { redirect } from 'next/navigation';
 import type { JWTPayload } from 'jose';
 import { verifyToken } from './auth';
+import { getSessionData } from './session-store';
 
 export type Session = {
+  sessionId: string;
   token: string;
   payload: JWTPayload;
 };
 
 /**
- * Reads the auth_token cookie and verifies it.
- * Returns null if the cookie is absent or the token is invalid/expired.
- * Safe to call from Server Components and Route Handlers.
+ * Reads the session_id cookie, looks up the JWT in the session store,
+ * and verifies it. Returns null if the session is missing or the token
+ * is invalid/expired.
  */
 export async function getSession(): Promise<Session | null> {
   const cookieStore = await cookies();
-  const token = cookieStore.get('auth_token')?.value;
-  if (!token) return null;
+  const sessionId = cookieStore.get('session_id')?.value;
+  if (!sessionId) return null;
+
+  const data = getSessionData(sessionId);
+  if (!data) return null;
 
   try {
-    const payload = await verifyToken(token);
-    return { token, payload };
+    const payload = await verifyToken(data.token);
+    return { sessionId, token: data.token, payload };
   } catch {
     return null;
   }
@@ -28,7 +33,7 @@ export async function getSession(): Promise<Session | null> {
 
 /**
  * Like getSession(), but redirects to / when there is no valid session.
- * Use this in protected Server Components to enforce authentication.
+ * Use in protected Server Components.
  */
 export async function requireSession(): Promise<Session> {
   const session = await getSession();

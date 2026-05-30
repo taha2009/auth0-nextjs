@@ -8,11 +8,24 @@ import { createRemoteJWKSet, jwtVerify, type JWTPayload } from 'jose';
  * Without an audience, Auth0 issues an opaque access token that cannot be
  * verified locally — use the /userinfo endpoint instead.
  */
-export async function verifyToken(token: string): Promise<JWTPayload> {
-  const jwks = createRemoteJWKSet(
-    new URL(`https://${process.env.AUTH0_DOMAIN}/.well-known/jwks.json`)
-  );
 
+// Cached per pod — env vars are fixed for the lifetime of the process, so a
+// single RemoteJWKSet instance is correct even across concurrent requests.
+// Different pods (e.g. different K8s stacks) each initialise their own instance
+// from their own AUTH0_DOMAIN, with no cross-contamination.
+const getJwks = (() => {
+  let jwks: ReturnType<typeof createRemoteJWKSet> | null = null;
+  return () => {
+    if (!jwks) {
+      jwks = createRemoteJWKSet(
+        new URL(`https://${process.env.AUTH0_DOMAIN}/.well-known/jwks.json`)
+      );
+    }
+    return jwks;
+  };
+})();
+
+export async function verifyToken(token: string): Promise<JWTPayload> {
   const options: Parameters<typeof jwtVerify>[2] = {
     issuer: `https://${process.env.AUTH0_DOMAIN}/`,
   };
@@ -22,6 +35,6 @@ export async function verifyToken(token: string): Promise<JWTPayload> {
     options.audience = process.env.AUTH0_AUDIENCE;
   }
 
-  const { payload } = await jwtVerify(token, jwks, options);
+  const { payload } = await jwtVerify(token, getJwks(), options);
   return payload;
 }

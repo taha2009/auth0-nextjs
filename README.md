@@ -174,8 +174,6 @@ The pattern for a standalone API service is the same as `/api/protected/route.ts
 3. Verify the JWT signature, audience, and issuer
 4. Reject with 401 if invalid; proceed if valid
 
-See [chat-api example](https://github.com/) for a complete Python/FastAPI implementation using the same Auth0 tenant.
-
 ---
 
 ## License

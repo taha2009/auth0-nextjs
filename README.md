@@ -1,12 +1,45 @@
 # Auth0 + Next.js
 
-A reference implementation of Auth0 authentication in Next.js 15 using the **OAuth 2.0 Authorization Code flow** — built from scratch, no Auth0 SDK required.
+If you are building an app — your own idea, a side project, something for your team — and you are thinking about adding login, **please don't build auth yourself.**
 
-Uses a **server-side session store** and a **BFF (Backend for Frontend)** pattern: the JWT never leaves the server, and all API calls from the browser go through Next.js API routes before being forwarded to any resource server.
+Not because it's too hard. Because it's too easy to get wrong in ways that are invisible until someone gets hurt. Password hashing, token storage, session fixation, brute force protection, secure cookie flags, CSRF — each one is a chapter in a security textbook, and getting any of them slightly wrong quietly exposes your users.
+
+This repo exists so you don't have to think about any of that.
 
 ---
 
-## Architecture
+## Use Auth0. Here's why.
+
+[Auth0](https://auth0.com) is free for most personal and small projects (up to 25,000 monthly active users on the free tier). It handles:
+
+- Passwords, hashing, and breach detection
+- Social login (Google, GitHub, etc.) in a few clicks
+- Multi-factor authentication
+- Suspicious login detection
+- Token signing and rotation
+- Compliance (SOC2, GDPR, HIPAA)
+
+Years of security engineering, maintained by a dedicated team, free. There is no version of rolling your own auth that beats this — not for a side project, not for a startup, not for an internal tool.
+
+The only thing Auth0 doesn't do is wire itself into your app. That's what this repo is for.
+
+---
+
+## What this repo is
+
+A working Next.js 15 app that shows exactly how to connect Auth0 to your application — no magic, no black-box SDK, just the real OAuth 2.0 Authorization Code flow written out so you can read it, understand it, and adapt it.
+
+Built with a **server-side session store** and a **BFF (Backend for Frontend)** pattern:
+
+- The JWT (the token Auth0 gives you after login) **never leaves the server**
+- The browser only ever holds an opaque session ID — useless on its own
+- All API calls from the browser go through Next.js API routes, which attach the token before forwarding to any backend service
+
+You can copy this directly, or use it as a reference when building your own.
+
+---
+
+## How the login flow works
 
 ```mermaid
 sequenceDiagram
@@ -38,21 +71,20 @@ sequenceDiagram
     Next.js-->>Browser: 200 data
 ```
 
-**The JWT never reaches the browser.** The browser holds only an opaque session ID. Next.js API routes act as a BFF — they resolve the session to a JWT and forward requests to resource servers on behalf of the browser.
+The browser never sees the JWT. It sends a session cookie, Next.js looks up the token on the server, verifies it, and makes the downstream call. Your resource server (an API, a database proxy, whatever) only ever talks to Next.js — never directly to the browser.
 
 ---
 
 ## Session design
 
-| | Traditional JWT cookie | This implementation |
+| | JWT in cookie (common but weaker) | This implementation |
 |---|---|---|
 | Cookie content | The JWT itself | Opaque session ID (UUID) |
-| JWT location | Browser cookie | Server-side memory store |
-| Visible in DevTools | Yes (cookie value) | No |
-| Revocable server-side | No | Yes — delete from store |
+| JWT visible in DevTools | Yes | No |
+| Revocable before expiry | No | Yes — delete from store |
 | Scales across replicas | Yes (stateless) | Needs shared store (Redis) |
 
-The in-memory store in `lib/session-store.ts` is intentionally simple to swap out. Replace `createSession`, `getSessionData`, and `deleteSessionData` with Redis / DB calls and nothing else changes.
+The in-memory store in `lib/session-store.ts` is intentionally simple to swap out. Replace `createSession`, `getSessionData`, and `deleteSessionData` with Redis calls and nothing else in the codebase changes.
 
 ---
 
@@ -185,12 +217,12 @@ Open [http://localhost:3000](http://localhost:3000) and click **Sign in with Aut
 | Concern | How it's handled |
 |---|---|
 | CSRF on the callback | `state` parameter — random UUID in a short-lived HTTP-only cookie, verified on return |
-| JWT exposure to browser | JWT is never sent to the client — only an opaque session ID cookie |
+| JWT never reaches browser | JWT lives in the server-side session store — only an opaque session ID is sent to the client |
 | XSS token theft | Session ID cookie is `httpOnly` — inaccessible to JavaScript |
 | Token expiry | `jwtVerify` (jose) rejects expired tokens; session resolves to null, user redirected to `/` |
 | Session revocation | Delete the session ID from the store to immediately invalidate access |
 | Auth0 session invalidation | Logout hits `/v2/logout` so Auth0's own session is cleared, preventing silent re-auth |
-| Unverified middleware | Middleware checks session cookie presence only (edge-fast); full verification happens in API routes and Server Components |
+| Unverified middleware | Middleware checks session cookie presence only (edge-fast); full cryptographic verification happens in API routes and Server Components |
 
 ---
 
@@ -198,7 +230,7 @@ Open [http://localhost:3000](http://localhost:3000) and click **Sign in with Aut
 
 - **Replicas:** the in-memory store does not survive process restarts and is not shared across pods. Replace `lib/session-store.ts` with a Redis adapter before running more than one replica.
 - **Session expiry:** the current store has no TTL. Add expiry logic in `getSessionData` or rely on the JWT's own `exp` claim (already enforced by `verifyToken`).
-- **HTTPS:** set `secure: true` on the session cookie in production (already done when `NODE_ENV=production`).
+- **HTTPS:** the session cookie is marked `secure` automatically when `NODE_ENV=production`.
 
 ---
 

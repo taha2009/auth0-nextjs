@@ -275,17 +275,6 @@ The in-memory session store works for a single pod. For multiple replicas, repla
 
 ---
 
-## Roadmap
-
-- [ ] Redis session store adapter
-- [ ] Role-based access control using Auth0 roles and permissions
-- [ ] Refresh token rotation
-- [ ] Multi-tenant support with Auth0 Organizations
-
-PRs welcome.
-
----
-
 ## License
 
 MIT

@@ -2,17 +2,18 @@
 
 A reference implementation of Auth0 authentication in Next.js 15 using the **OAuth 2.0 Authorization Code flow** — built from scratch, no Auth0 SDK required.
 
-Use it as a starting point or as a guide when rolling your own auth.
+Uses a **server-side session store** and a **BFF (Backend for Frontend)** pattern: the JWT never leaves the server, and all API calls from the browser go through Next.js API routes before being forwarded to any resource server.
 
 ---
 
-## How it works
+## Architecture
 
 ```mermaid
 sequenceDiagram
     participant Browser
     participant Next.js
     participant Auth0
+    participant Resource Server
 
     Browser->>Next.js: GET /api/auth/login
     Next.js-->>Browser: 302 to Auth0 /authorize
@@ -23,45 +24,63 @@ sequenceDiagram
     Auth0-->>Browser: 302 to /api/auth/callback?code=abc&state=xyz
 
     Browser->>Next.js: GET /api/auth/callback?code=abc&state=xyz
-    Note over Next.js: Verify state matches cookie
-    Next.js->>Auth0: POST /oauth/token (code + client_secret)
-    Auth0-->>Next.js: access_token as JWT
+    Note over Next.js: Verify state, exchange code for JWT
+    Next.js->>Auth0: POST /oauth/token
+    Auth0-->>Next.js: access_token (JWT)
+    Note over Next.js: Store JWT in session store, issue session ID
     Next.js-->>Browser: 302 to /dashboard
-    Note over Browser,Next.js: Set-Cookie: auth_token=JWT (HttpOnly)
+    Note over Browser,Next.js: Set-Cookie: session_id=uuid (HttpOnly)
 
-    Browser->>Next.js: GET /dashboard
-    Note over Next.js: Verify JWT via Auth0 JWKS (local, no roundtrip)
-    Next.js-->>Browser: 200 HTML
+    Browser->>Next.js: GET /api/protected (session_id cookie)
+    Note over Next.js: Look up JWT by session ID, verify it
+    Next.js->>Resource Server: GET /data (Authorization: Bearer JWT)
+    Resource Server-->>Next.js: 200 data
+    Next.js-->>Browser: 200 data
 ```
 
-The JWT is stored in an **HTTP-only cookie** so JavaScript can never read it. Every protected route verifies the token locally using Auth0's public JWKS endpoint — no session database needed.
+**The JWT never reaches the browser.** The browser holds only an opaque session ID. Next.js API routes act as a BFF — they resolve the session to a JWT and forward requests to resource servers on behalf of the browser.
+
+---
+
+## Session design
+
+| | Traditional JWT cookie | This implementation |
+|---|---|---|
+| Cookie content | The JWT itself | Opaque session ID (UUID) |
+| JWT location | Browser cookie | Server-side memory store |
+| Visible in DevTools | Yes (cookie value) | No |
+| Revocable server-side | No | Yes — delete from store |
+| Scales across replicas | Yes (stateless) | Needs shared store (Redis) |
+
+The in-memory store in `lib/session-store.ts` is intentionally simple to swap out. Replace `createSession`, `getSessionData`, and `deleteSessionData` with Redis / DB calls and nothing else changes.
 
 ---
 
 ## Project structure
 
 ```
-├── middleware.ts              Edge-layer guard: redirects /dashboard and /profile if cookie absent
+├── middleware.ts              Edge-layer guard: redirects /dashboard and /profile if no session cookie
 ├── lib/
 │   ├── auth.ts                verifyToken() — validates JWT against Auth0 JWKS using jose
+│   ├── session-store.ts       In-memory session store (swap for Redis/DB in production)
 │   └── session.ts             getSession() / requireSession() — for Server Components
 └── app/
     ├── page.tsx               Landing page (redirects to /dashboard if already logged in)
-    ├── dashboard/page.tsx     Protected Server Component — verifies JWT without a fetch
+    ├── dashboard/page.tsx     Protected Server Component — session resolved server-side
     ├── profile/page.tsx       Protected Client Component — fetches from /api/auth/me
     └── api/
         ├── auth/login/        Redirects to Auth0 /authorize with a CSRF state cookie
-        ├── auth/callback/     Exchanges the code for a JWT, stores it in an HTTP-only cookie
-        ├── auth/logout/       Clears the cookie and redirects to Auth0 /v2/logout
-        ├── auth/me/           Returns the current user's profile (JWT-verified, server-side)
-        └── protected/         Example protected API route (accepts cookie or Bearer header)
+        ├── auth/callback/     Exchanges code for JWT, creates session, sets session_id cookie
+        ├── auth/logout/       Deletes session from store, clears cookie, redirects to Auth0 /v2/logout
+        ├── auth/me/           Resolves session → JWT → Auth0 /userinfo, returns profile
+        └── protected/         Example BFF route: resolves session → JWT → forwards to resource server
 ```
 
 ---
 
-## Two auth patterns
+## Patterns
 
-### Server Component (recommended for pages)
+### Server Component
 
 ```ts
 // app/dashboard/page.tsx
@@ -73,9 +92,9 @@ export default async function DashboardPage() {
 }
 ```
 
-`requireSession()` reads the HTTP-only cookie and verifies the JWT in one step — no extra fetch, no client-side redirect.
+`requireSession()` reads the session ID cookie, looks up the JWT in the store, and verifies it — all on the server, in one step.
 
-### Client Component (when you need browser-side data)
+### Client Component
 
 ```ts
 // app/profile/page.tsx
@@ -85,26 +104,34 @@ useEffect(() => {
 }, []);
 ```
 
-Client Components can't read HTTP-only cookies, so they call `/api/auth/me` which does the verification server-side and returns the profile.
+Client Components can't access the session store directly, so they call a Next.js API route which resolves the session and returns only the data the browser needs.
 
-### Protected API route
+### BFF API route (proxying to a resource server)
 
 ```ts
-// app/api/protected/route.ts
+// app/api/your-resource/route.ts
+import { getSessionData } from '@/lib/session-store';
 import { verifyToken } from '@/lib/auth';
 
 export async function GET(request: NextRequest) {
-  const token = request.cookies.get('auth_token')?.value
-    || request.headers.get('Authorization')?.replace('Bearer ', '');
+  const sessionId = request.cookies.get('session_id')?.value;
+  if (!sessionId) return NextResponse.json({ error: 'Not authenticated' }, { status: 401 });
 
-  if (!token) return NextResponse.json({ error: 'Not authenticated' }, { status: 401 });
+  const data = getSessionData(sessionId);
+  if (!data) return NextResponse.json({ error: 'Session not found' }, { status: 401 });
 
-  const payload = await verifyToken(token); // throws if invalid
-  return NextResponse.json({ data: '…', subject: payload.sub });
+  await verifyToken(data.token); // throws if expired or invalid
+
+  // Forward to your resource server with the JWT — browser never sees this URL or token
+  const res = await fetch(`${process.env.RESOURCE_SERVER_URL}/endpoint`, {
+    headers: { Authorization: `Bearer ${data.token}` },
+  });
+
+  return NextResponse.json(await res.json());
 }
 ```
 
-Accepts both cookie (browser) and `Authorization: Bearer` header (API clients / mobile).
+The browser calls `/api/your-resource`. Next.js resolves the session to a JWT and forwards to the real backend. The resource server URL and JWT stay server-side.
 
 ---
 
@@ -121,7 +148,7 @@ Accepts both cookie (browser) and `Authorization: Bearer` header (API clients / 
 
 ### 2. Create an Auth0 API (optional but recommended)
 
-Without an API audience, Auth0 issues an opaque access token that can't be verified locally. With one, it issues a JWT.
+Without an API audience, Auth0 issues an opaque access token that cannot be verified locally. With one, it issues a JWT.
 
 1. Go to **APIs** → **Create API**
 2. Set an **Identifier** (e.g. `https://myapp.example.com`) — this becomes `AUTH0_AUDIENCE`
@@ -157,22 +184,21 @@ Open [http://localhost:3000](http://localhost:3000) and click **Sign in with Aut
 
 | Concern | How it's handled |
 |---|---|
-| CSRF on the callback | `state` parameter — a random UUID stored in a short-lived HTTP-only cookie and verified on return |
-| XSS token theft | Token stored in `httpOnly` cookie — JavaScript can never read it |
-| Token expiry | `jwtVerify` (jose) rejects expired tokens; user is redirected to `/` |
+| CSRF on the callback | `state` parameter — random UUID in a short-lived HTTP-only cookie, verified on return |
+| JWT exposure to browser | JWT is never sent to the client — only an opaque session ID cookie |
+| XSS token theft | Session ID cookie is `httpOnly` — inaccessible to JavaScript |
+| Token expiry | `jwtVerify` (jose) rejects expired tokens; session resolves to null, user redirected to `/` |
+| Session revocation | Delete the session ID from the store to immediately invalidate access |
 | Auth0 session invalidation | Logout hits `/v2/logout` so Auth0's own session is cleared, preventing silent re-auth |
-| Unverified middleware | Middleware only checks cookie presence (edge-fast); full JWT cryptographic verification happens in Server Components and API routes |
+| Unverified middleware | Middleware checks session cookie presence only (edge-fast); full verification happens in API routes and Server Components |
 
 ---
 
-## Adapting for a separate backend (FastAPI, Express, etc.)
+## Production considerations
 
-The pattern for a standalone API service is the same as `/api/protected/route.ts`:
-
-1. Read the `Authorization: Bearer <token>` header
-2. Fetch `https://<AUTH0_DOMAIN>/.well-known/jwks.json` and cache it
-3. Verify the JWT signature, audience, and issuer
-4. Reject with 401 if invalid; proceed if valid
+- **Replicas:** the in-memory store does not survive process restarts and is not shared across pods. Replace `lib/session-store.ts` with a Redis adapter before running more than one replica.
+- **Session expiry:** the current store has no TTL. Add expiry logic in `getSessionData` or rely on the JWT's own `exp` claim (already enforced by `verifyToken`).
+- **HTTPS:** set `secure: true` on the session cookie in production (already done when `NODE_ENV=production`).
 
 ---
 

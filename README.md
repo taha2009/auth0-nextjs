@@ -189,7 +189,7 @@ export async function GET(request: NextRequest) {
 
 ### Option A — CLI (recommended)
 
-Install the [Auth0 CLI](https://auth0.com/docs/cli), then run these commands once. Everything is provisioned in under a minute.
+First, sign up at [auth0.com](https://auth0.com) — a default tenant is created for you automatically. Then install the [Auth0 CLI](https://auth0.com/docs/cli) and run these commands once. Everything is provisioned in under a minute.
 
 ```bash
 # 1. Authenticate the CLI against your tenant

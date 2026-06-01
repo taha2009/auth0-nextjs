@@ -58,6 +58,13 @@ Open [http://localhost:3000](http://localhost:3000). Done.
 
 This repo uses a **server-side session store** and a **BFF (Backend for Frontend)** pattern. The JWT Auth0 issues after login never reaches the browser — the browser only holds an opaque session ID, useless without the server.
 
+Two API namespaces keep responsibilities clear:
+
+| Namespace | Who calls it | Auth mechanism |
+|---|---|---|
+| `/api/auth/*` | Browser (redirects + session cookie) | HTTP-only session cookie |
+| `/api/resource/*` | BFF layer or other services (Bearer token) | `Authorization: Bearer <JWT>` |
+
 ```mermaid
 sequenceDiagram
     participant Browser
@@ -115,19 +122,21 @@ The in-memory store in `lib/session-store.ts` is intentionally simple to swap ou
 ├── middleware.ts              Edge-layer guard: redirects /dashboard and /profile if no session cookie
 ├── lib/
 │   ├── auth.ts                verifyToken() — validates JWT against Auth0 JWKS using jose
+│   ├── openapi.ts             OpenAPI 3.0 spec for all API endpoints
 │   ├── session-store.ts       In-memory session store (swap for Redis/DB in production)
 │   └── session.ts             getSession() / requireSession() — for Server Components
 └── app/
     ├── page.tsx               Landing page (redirects to /dashboard if already logged in)
     ├── dashboard/page.tsx     Protected Server Component — session resolved server-side
+    ├── docs/page.tsx          Swagger UI — interactive API docs at /docs
     ├── profile/page.tsx       Protected Client Component — fetches from /api/auth/me
     └── api/
         ├── auth/login/        Redirects to Auth0 /authorize with a CSRF state cookie
         ├── auth/callback/     Exchanges code → JWT + /userinfo, stores both in session, sets session_id cookie
         ├── auth/logout/       Deletes session from store, clears cookie, redirects to Auth0 /v2/logout
-        ├── auth/me/           Returns cached user profile from session store
-        └── resource/
-            └── protected/     Resource server endpoint — verifies Bearer JWT via Auth0 JWKS
+        ├── auth/me/           Returns cached user profile from session store (session cookie)
+        └── resource/          Resource server endpoints — accept Authorization: Bearer JWT
+            └── protected/     Example: verifies JWT via Auth0 JWKS and returns protected data
 ```
 
 ---
@@ -162,10 +171,10 @@ Client Components can't access the session store directly, so they call a Next.j
 
 ### BFF API route (proxying to a resource server)
 
-The browser sends a session cookie. The Next.js API route looks up the JWT and forwards it as a Bearer token. The resource server verifies the JWT on its end.
+The browser sends a session cookie. The Next.js BFF route looks up the JWT and forwards it as a Bearer token. The resource server verifies the JWT on its end — the browser never sees the token or the resource server URL.
 
 ```ts
-// app/api/your-resource/route.ts
+// app/api/your-bff-route/route.ts
 import { getSessionData } from '@/lib/session-store';
 
 export async function GET(request: NextRequest) {
@@ -175,7 +184,6 @@ export async function GET(request: NextRequest) {
   const data = getSessionData(sessionId);
   if (!data) return NextResponse.json({ error: 'Session not found' }, { status: 401 });
 
-  // Forward to your resource server — browser never sees this URL or the JWT
   const res = await fetch(`${process.env.RESOURCE_SERVER_URL}/endpoint`, {
     headers: { Authorization: `Bearer ${data.token}` },
   });
@@ -183,6 +191,29 @@ export async function GET(request: NextRequest) {
   return NextResponse.json(await res.json());
 }
 ```
+
+### Resource server endpoint
+
+Endpoints under `/api/resource/*` accept a Bearer JWT directly and verify it against Auth0's JWKS — no session store involved. This is the pattern for any service that needs to validate tokens independently.
+
+```ts
+// app/api/resource/your-endpoint/route.ts
+import { verifyToken } from '@/lib/auth';
+
+export async function GET(request: NextRequest) {
+  const token = request.headers.get('authorization')?.slice(7);
+  if (!token) return NextResponse.json({ error: 'Missing Bearer token' }, { status: 401 });
+
+  try {
+    const payload = await verifyToken(token);
+    return NextResponse.json({ sub: payload.sub, data: '...' });
+  } catch {
+    return NextResponse.json({ error: 'Invalid or expired token' }, { status: 401 });
+  }
+}
+```
+
+See `/docs` for the interactive Swagger UI where you can paste a JWT and test all endpoints.
 
 ---
 

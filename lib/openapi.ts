@@ -17,7 +17,7 @@ export const spec = {
     },
   },
   paths: {
-    '/api/protected': {
+    '/api/resource/protected': {
       get: {
         summary: 'Protected resource',
         description: 'Verifies the JWT against Auth0 JWKS and returns protected data. This simulates what a resource server would expose.',

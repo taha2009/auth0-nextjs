@@ -83,7 +83,7 @@ sequenceDiagram
     Next.js-->>Browser: 302 to /dashboard
     Note over Browser,Next.js: Set-Cookie: session_id=uuid (HttpOnly)
 
-    Browser->>Next.js: GET /api/protected (session_id cookie)
+    Browser->>Next.js: GET /api/resource/protected (session_id cookie)
     Note over Next.js: Look up session by ID, attach JWT
     Next.js->>Resource Server: GET /data (Authorization: Bearer JWT)
     Resource Server-->>Next.js: 200 data
@@ -126,7 +126,8 @@ The in-memory store in `lib/session-store.ts` is intentionally simple to swap ou
         ├── auth/callback/     Exchanges code → JWT + /userinfo, stores both in session, sets session_id cookie
         ├── auth/logout/       Deletes session from store, clears cookie, redirects to Auth0 /v2/logout
         ├── auth/me/           Returns cached user profile from session store
-        └── protected/         Example BFF route: looks up JWT by session ID, verifies it, forwards to resource server
+        └── resource/
+            └── protected/     Resource server endpoint — verifies Bearer JWT via Auth0 JWKS
 ```
 
 ---

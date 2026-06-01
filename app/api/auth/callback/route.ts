@@ -57,6 +57,7 @@ export async function GET(request: NextRequest) {
     }
 
     const user = await userInfoRes.json();
+    console.log('\n--- JWT ACCESS TOKEN ---\n', tokens.access_token, '\n---\n');
     const sessionId = createSession(tokens.access_token, {
       sub: user.sub,
       name: user.name,

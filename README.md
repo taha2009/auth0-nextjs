@@ -74,15 +74,17 @@ sequenceDiagram
     Auth0-->>Browser: 302 to /api/auth/callback?code=abc&state=xyz
 
     Browser->>Next.js: GET /api/auth/callback?code=abc&state=xyz
-    Note over Next.js: Verify state, exchange code for JWT
+    Note over Next.js: Verify state, exchange code for tokens
     Next.js->>Auth0: POST /oauth/token
-    Auth0-->>Next.js: access_token (JWT)
-    Note over Next.js: Store JWT in session store, issue session ID
+    Auth0-->>Next.js: access_token (JWT) + id_token
+    Next.js->>Auth0: GET /userinfo (Bearer access_token)
+    Auth0-->>Next.js: user profile
+    Note over Next.js: Store token + user info in session store, issue session ID
     Next.js-->>Browser: 302 to /dashboard
     Note over Browser,Next.js: Set-Cookie: session_id=uuid (HttpOnly)
 
     Browser->>Next.js: GET /api/protected (session_id cookie)
-    Note over Next.js: Look up JWT by session ID, verify it
+    Note over Next.js: Look up session by ID, attach JWT
     Next.js->>Resource Server: GET /data (Authorization: Bearer JWT)
     Resource Server-->>Next.js: 200 data
     Next.js-->>Browser: 200 data
@@ -100,6 +102,8 @@ All API calls from the browser go through Next.js API routes, which attach the J
 | JWT visible in DevTools | Yes | No |
 | Revocable before expiry | No | Yes — delete from store |
 | Scales across replicas | Yes (stateless) | Needs shared store (Redis) |
+
+The session store holds both the JWT access token (for forwarding to resource servers) and the user profile fetched from `/userinfo` at login time. Subsequent requests are just a store lookup — no per-request JWT verification or network calls.
 
 The in-memory store in `lib/session-store.ts` is intentionally simple to swap out. Replace `createSession`, `getSessionData`, and `deleteSessionData` with Redis calls and nothing else in the codebase changes.
 

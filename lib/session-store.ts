@@ -1,5 +1,14 @@
+export type UserInfo = {
+  sub: string;
+  name?: string;
+  email?: string;
+  picture?: string;
+  nickname?: string;
+};
+
 export type SessionData = {
   token: string;
+  user: UserInfo;
   createdAt: Date;
 };
 
@@ -16,9 +25,9 @@ declare global {
 const store: Map<string, SessionData> =
   globalThis.__sessionStore ?? (globalThis.__sessionStore = new Map());
 
-export function createSession(token: string): string {
+export function createSession(token: string, user: UserInfo): string {
   const sessionId = crypto.randomUUID();
-  store.set(sessionId, { token, createdAt: new Date() });
+  store.set(sessionId, { token, user, createdAt: new Date() });
   return sessionId;
 }
 

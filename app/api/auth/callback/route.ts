@@ -20,7 +20,6 @@ export async function GET(request: NextRequest) {
     );
   }
 
-  // Verify CSRF state
   const storedState = request.cookies.get('auth_state')?.value;
   if (!state || state !== storedState) {
     return NextResponse.redirect(`${APP_BASE_URL}?error=invalid_state`);
@@ -31,7 +30,6 @@ export async function GET(request: NextRequest) {
   }
 
   try {
-    // Exchange the authorization code for tokens
     const tokenRes = await fetch(`https://${AUTH0_DOMAIN}/oauth/token`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -50,20 +48,30 @@ export async function GET(request: NextRequest) {
       throw new Error(tokens.error_description || 'Token exchange failed');
     }
 
-    // Store the JWT in the server-side session store and give the browser
-    // an opaque session ID — the token never travels to the client.
-    const sessionId = createSession(tokens.access_token);
+    const userInfoRes = await fetch(`https://${AUTH0_DOMAIN}/userinfo`, {
+      headers: { Authorization: `Bearer ${tokens.access_token}` },
+    });
+
+    if (!userInfoRes.ok) {
+      throw new Error('Failed to fetch user info');
+    }
+
+    const user = await userInfoRes.json();
+    const sessionId = createSession(tokens.access_token, {
+      sub: user.sub,
+      name: user.name,
+      email: user.email,
+      picture: user.picture,
+      nickname: user.nickname,
+    });
 
     const response = NextResponse.redirect(`${APP_BASE_URL}/dashboard`);
-
-    // Clean up the CSRF state cookie
     response.cookies.set('auth_state', '', { maxAge: 0, path: '/' });
-
     response.cookies.set('session_id', sessionId, {
       httpOnly: true,
       secure: process.env.NODE_ENV === 'production',
       sameSite: 'lax',
-      maxAge: 60 * 60 * 24 * 7, // 7 days
+      maxAge: 60 * 60 * 24 * 7,
       path: '/',
     });
 

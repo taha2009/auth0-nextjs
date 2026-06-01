@@ -161,10 +161,11 @@ Client Components can't access the session store directly, so they call a Next.j
 
 ### BFF API route (proxying to a resource server)
 
+The browser sends a session cookie. The Next.js API route looks up the JWT and forwards it as a Bearer token. The resource server verifies the JWT on its end.
+
 ```ts
 // app/api/your-resource/route.ts
 import { getSessionData } from '@/lib/session-store';
-import { verifyToken } from '@/lib/auth';
 
 export async function GET(request: NextRequest) {
   const sessionId = request.cookies.get('session_id')?.value;
@@ -172,8 +173,6 @@ export async function GET(request: NextRequest) {
 
   const data = getSessionData(sessionId);
   if (!data) return NextResponse.json({ error: 'Session not found' }, { status: 401 });
-
-  await verifyToken(data.token); // throws if expired or invalid
 
   // Forward to your resource server — browser never sees this URL or the JWT
   const res = await fetch(`${process.env.RESOURCE_SERVER_URL}/endpoint`, {
@@ -256,9 +255,9 @@ Sign up at [auth0.com](https://auth0.com) — no credit card required.
    - **Allowed Web Origins:** `http://localhost:3000`
 4. Copy **Domain**, **Client ID**, and **Client Secret** into your `.env.local`
 
-#### 3. Create an Auth0 API *(optional but recommended)*
+#### 3. Create an Auth0 API
 
-Without an API audience, Auth0 issues an opaque access token that cannot be verified locally. With one, it issues a signed JWT.
+Without an audience, Auth0 issues an opaque access token that cannot be forwarded to or verified by resource servers. With one, it issues a signed JWT.
 
 1. Dashboard → **APIs** → **Create API**
 2. Set an **Identifier** — any URL-style string, e.g. `https://myapp.example.com`
@@ -276,7 +275,7 @@ cp .env.example .env.local
 AUTH0_DOMAIN=your-tenant.auth0.com
 AUTH0_CLIENT_ID=your-client-id
 AUTH0_CLIENT_SECRET=your-client-secret
-AUTH0_AUDIENCE=https://myapp.example.com   # from step 3, or leave empty
+AUTH0_AUDIENCE=https://myapp.example.com   # from step 3
 AUTH0_SCOPE=openid profile email
 APP_BASE_URL=http://localhost:3000
 ```

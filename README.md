@@ -123,10 +123,10 @@ The in-memory store in `lib/session-store.ts` is intentionally simple to swap ou
     ├── profile/page.tsx       Protected Client Component — fetches from /api/auth/me
     └── api/
         ├── auth/login/        Redirects to Auth0 /authorize with a CSRF state cookie
-        ├── auth/callback/     Exchanges code for JWT, creates session, sets session_id cookie
+        ├── auth/callback/     Exchanges code → JWT + /userinfo, stores both in session, sets session_id cookie
         ├── auth/logout/       Deletes session from store, clears cookie, redirects to Auth0 /v2/logout
-        ├── auth/me/           Resolves session → JWT → Auth0 /userinfo, returns profile
-        └── protected/         Example BFF route: resolves session → JWT → forwards to resource server
+        ├── auth/me/           Returns cached user profile from session store
+        └── protected/         Example BFF route: looks up JWT by session ID, verifies it, forwards to resource server
 ```
 
 ---
@@ -140,12 +140,12 @@ The in-memory store in `lib/session-store.ts` is intentionally simple to swap ou
 import { requireSession } from '@/lib/session';
 
 export default async function DashboardPage() {
-  const { payload } = await requireSession(); // redirects to / if no valid session
-  return <div>Hello {String(payload.sub)}</div>;
+  const { user } = await requireSession(); // redirects to / if no valid session
+  return <div>Hello {user.name}</div>;
 }
 ```
 
-`requireSession()` reads the session ID cookie, looks up the JWT in the store, and verifies it — all on the server, in one step.
+`requireSession()` reads the session ID cookie and looks up the session in the store — the user profile is available immediately with no additional network calls.
 
 ### Client Component
 

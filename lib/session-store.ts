@@ -6,7 +6,15 @@ export type SessionData = {
 // In-memory store — swap for Redis / DB in production.
 // Each pod has its own store; sticky sessions or a shared store are needed
 // once you run more than one replica.
-const store = new Map<string, SessionData>();
+//
+// Anchored on globalThis so that Turbopack's per-route module isolation in dev
+// doesn't split the store across multiple Map instances.
+declare global {
+  // eslint-disable-next-line no-var
+  var __sessionStore: Map<string, SessionData> | undefined;
+}
+const store: Map<string, SessionData> =
+  globalThis.__sessionStore ?? (globalThis.__sessionStore = new Map());
 
 export function createSession(token: string): string {
   const sessionId = crypto.randomUUID();

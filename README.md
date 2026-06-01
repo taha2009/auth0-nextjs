@@ -184,11 +184,65 @@ export async function GET(request: NextRequest) {
 
 ## Setup
 
-### 1. Create a free Auth0 account
+### Option A — CLI (recommended)
+
+Install the [Auth0 CLI](https://auth0.com/docs/cli), then run these commands once. Everything is provisioned in under a minute.
+
+```bash
+# 1. Authenticate the CLI against your tenant
+auth0 login
+
+# 2. Create a Regular Web Application and capture its credentials
+auth0 apps create \
+  --name "My App" \
+  --type regular \
+  --callbacks "http://localhost:3000/api/auth/callback" \
+  --logout-urls "http://localhost:3000" \
+  --web-origins "http://localhost:3000" \
+  --reveal-secrets \
+  --json
+# → note down client_id, client_secret, and the domain from the output
+
+# 3. Create an API resource server (gives you a verifiable JWT access token)
+auth0 apis create \
+  --name "local" \
+  --identifier "http://localhost:3000" \
+  --json
+# → note down the id field
+
+# 4. Skip the Auth0 consent screen for first-party apps
+#    skip_consent handles database users; allow_all user policy handles social logins
+auth0 api patch "resource-servers/<API_ID>" \
+  --data '{"skip_consent_for_verifiable_first_party_clients":true,"subject_type_authorization":{"user":{"policy":"allow_all"},"client":{"policy":"require_client_grant"}}}'
+```
+
+> **Note:** If you use social login (Google etc.) via Auth0's built-in dev credentials, Google will still show its own consent screen on first login. To suppress it, create a Google OAuth app in Google Cloud Console and add the credentials to your Auth0 tenant under **Authentication → Social → Google**.
+
+
+Then fill in your `.env.local`:
+
+```bash
+cp .env.example .env.local
+```
+
+```env
+AUTH0_DOMAIN=<your-tenant>.auth0.com
+AUTH0_CLIENT_ID=<client_id from step 2>
+AUTH0_CLIENT_SECRET=<client_secret from step 2>
+AUTH0_AUDIENCE=http://localhost:3000
+AUTH0_SCOPE=openid profile email
+APP_BASE_URL=http://localhost:3000
+```
+
+---
+
+### Option B — Dashboard
+
+#### 1. Create a free Auth0 account
 
 Sign up at [auth0.com](https://auth0.com) — no credit card required.
 
-### 2. Create an Auth0 application
+#### 2. Create an Auth0 application
 
 1. Dashboard → **Applications** → **Create Application**
 2. Choose **Regular Web Application**
@@ -198,15 +252,17 @@ Sign up at [auth0.com](https://auth0.com) — no credit card required.
    - **Allowed Web Origins:** `http://localhost:3000`
 4. Copy **Domain**, **Client ID**, and **Client Secret** into your `.env.local`
 
-### 3. Create an Auth0 API *(optional but recommended)*
+#### 3. Create an Auth0 API *(optional but recommended)*
 
 Without an API audience, Auth0 issues an opaque access token that cannot be verified locally. With one, it issues a signed JWT.
 
 1. Dashboard → **APIs** → **Create API**
 2. Set an **Identifier** — any URL-style string, e.g. `https://myapp.example.com`
 3. This identifier becomes your `AUTH0_AUDIENCE` env var
+4. Dashboard → **APIs** → select the API you just created → **Application Access** → enable your application
+5. On the same page → **Settings** → enable **Allow Skipping User Consent** to suppress the consent screen for first-party apps
 
-### 4. Configure environment variables
+#### 4. Configure environment variables
 
 ```bash
 cp .env.example .env.local

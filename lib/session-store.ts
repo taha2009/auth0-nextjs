@@ -7,10 +7,11 @@ export type UserInfo = {
 };
 
 export type SessionData = {
-  token: string;
   user: UserInfo;
   createdAt: Date;
 };
+
+const SESSION_TTL_MS = 7 * 24 * 60 * 60 * 1000; // 7 days — matches the cookie maxAge
 
 // In-memory store — swap for Redis / DB in production.
 // Each pod has its own store; sticky sessions or a shared store are needed
@@ -25,14 +26,20 @@ declare global {
 const store: Map<string, SessionData> =
   globalThis.__sessionStore ?? (globalThis.__sessionStore = new Map());
 
-export function createSession(token: string, user: UserInfo): string {
+export function createSession(user: UserInfo): string {
   const sessionId = crypto.randomUUID();
-  store.set(sessionId, { token, user, createdAt: new Date() });
+  store.set(sessionId, { user, createdAt: new Date() });
   return sessionId;
 }
 
 export function getSessionData(sessionId: string): SessionData | null {
-  return store.get(sessionId) ?? null;
+  const data = store.get(sessionId);
+  if (!data) return null;
+  if (Date.now() - data.createdAt.getTime() > SESSION_TTL_MS) {
+    store.delete(sessionId);
+    return null;
+  }
+  return data;
 }
 
 export function deleteSessionData(sessionId: string): void {

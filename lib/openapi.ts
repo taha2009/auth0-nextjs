@@ -3,51 +3,10 @@ export const spec = {
   info: {
     title: 'Auth0 + Next.js API',
     version: '1.0.0',
-    description: 'Internal API — protected endpoints require a valid Auth0 JWT as a Bearer token.',
+    description: 'Authentication API — session cookie required for protected endpoints.',
   },
   servers: [{ url: '' }],
-  components: {
-    securitySchemes: {
-      bearerAuth: {
-        type: 'http',
-        scheme: 'bearer',
-        bearerFormat: 'JWT',
-        description: 'Auth0 JWT access token. Obtain one via the login flow, then copy it from your server logs or the session store.',
-      },
-    },
-  },
   paths: {
-    '/api/resource/protected': {
-      get: {
-        summary: 'Protected resource',
-        description: 'Verifies the JWT against Auth0 JWKS and returns protected data. This simulates what a resource server would expose.',
-        security: [{ bearerAuth: [] }],
-        responses: {
-          200: {
-            description: 'Access granted',
-            content: {
-              'application/json': {
-                schema: {
-                  type: 'object',
-                  properties: {
-                    message: { type: 'string', example: 'Access granted' },
-                    sub: { type: 'string', example: 'auth0|abc123' },
-                    data: {
-                      type: 'object',
-                      properties: {
-                        secret: { type: 'string' },
-                        timestamp: { type: 'string', format: 'date-time' },
-                      },
-                    },
-                  },
-                },
-              },
-            },
-          },
-          401: { description: 'Missing or invalid token' },
-        },
-      },
-    },
     '/api/auth/me': {
       get: {
         summary: 'Current user profile',
@@ -70,7 +29,7 @@ export const spec = {
               },
             },
           },
-          401: { description: 'Not authenticated' },
+          401: { description: 'Not authenticated or session expired' },
         },
       },
     },

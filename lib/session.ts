@@ -5,7 +5,6 @@ import { getSessionData } from './session-store';
 
 export type Session = {
   sessionId: string;
-  token: string;
   user: UserInfo;
 };
 
@@ -17,7 +16,7 @@ export async function getSession(): Promise<Session | null> {
   const data = getSessionData(sessionId);
   if (!data) return null;
 
-  return { sessionId, token: data.token, user: data.user };
+  return { sessionId, user: data.user };
 }
 
 export async function requireSession(): Promise<Session> {

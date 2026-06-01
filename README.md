@@ -50,27 +50,19 @@ Open [http://localhost:3000](http://localhost:3000). Done.
 
 > **New to Auth0?** See [Setup](#setup) below for a 5-minute walkthrough of creating a free Auth0 account and getting your credentials.
 
-[![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/new/clone?repository-url=https%3A%2F%2Fgithub.com%2Ftaha2009%2Fauth0-nextjs&env=AUTH0_DOMAIN,AUTH0_CLIENT_ID,AUTH0_CLIENT_SECRET,AUTH0_AUDIENCE,AUTH0_SCOPE,APP_BASE_URL&envDescription=Auth0%20credentials%20and%20your%20app%20URL&project-name=auth0-nextjs&repository-name=auth0-nextjs)
+[![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/new/clone?repository-url=https%3A%2F%2Fgithub.com%2Ftaha2009%2Fauth0-nextjs&env=AUTH0_DOMAIN,AUTH0_CLIENT_ID,AUTH0_CLIENT_SECRET,AUTH0_SCOPE,APP_BASE_URL&envDescription=Auth0%20credentials%20and%20your%20app%20URL&project-name=auth0-nextjs&repository-name=auth0-nextjs)
 
 ---
 
 ## Architecture
 
-This repo uses a **server-side session store** and a **BFF (Backend for Frontend)** pattern. The JWT Auth0 issues after login never reaches the browser — the browser only holds an opaque session ID, useless without the server.
-
-Two API namespaces keep responsibilities clear:
-
-| Namespace | Who calls it | Auth mechanism |
-|---|---|---|
-| `/api/auth/*` | Browser (redirects + session cookie) | HTTP-only session cookie |
-| `/api/resource/*` | BFF layer or other services (Bearer token) | `Authorization: Bearer <JWT>` |
+This repo uses a **server-side session store** pattern. After login, the browser holds only an opaque session ID cookie — user info lives entirely on the server.
 
 ```mermaid
 sequenceDiagram
     participant Browser
     participant Next.js
     participant Auth0
-    participant Resource Server
 
     Browser->>Next.js: GET /api/auth/login
     Next.js-->>Browser: 302 to Auth0 /authorize
@@ -83,36 +75,35 @@ sequenceDiagram
     Browser->>Next.js: GET /api/auth/callback?code=abc&state=xyz
     Note over Next.js: Verify state, exchange code for tokens
     Next.js->>Auth0: POST /oauth/token
-    Auth0-->>Next.js: access_token (JWT) + id_token
+    Auth0-->>Next.js: access_token
     Next.js->>Auth0: GET /userinfo (Bearer access_token)
     Auth0-->>Next.js: user profile
-    Note over Next.js: Store token + user info in session store, issue session ID
+    Note over Next.js: Store user info in session, issue session ID
     Next.js-->>Browser: 302 to /dashboard
     Note over Browser,Next.js: Set-Cookie: session_id=uuid (HttpOnly)
 
-    Browser->>Next.js: GET /api/resource/protected (session_id cookie)
-    Note over Next.js: Look up session by ID, attach JWT
-    Next.js->>Resource Server: GET /data (Authorization: Bearer JWT)
-    Resource Server-->>Next.js: 200 data
-    Next.js-->>Browser: 200 data
+    Browser->>Next.js: GET /dashboard (session_id cookie)
+    Note over Next.js: Look up session, return page with user info
+    Next.js-->>Browser: 200 dashboard
 ```
-
-All API calls from the browser go through Next.js API routes, which attach the JWT before forwarding to any backend service. The browser never sees the token, the resource server URL, or anything about Auth0.
 
 ---
 
 ## Session design
 
-| | JWT in cookie *(common but weaker)* | This implementation |
+| | Storing token in cookie *(common but weaker)* | This implementation |
 |---|---|---|
-| Cookie content | The JWT itself | Opaque session ID (UUID) |
-| JWT visible in DevTools | Yes | No |
+| Cookie content | The token itself | Opaque session ID (UUID) |
+| User data visible in DevTools | Yes | No |
 | Revocable before expiry | No | Yes — delete from store |
+| Session lifetime | Controlled by Auth0 token expiry | Controlled by the app |
 | Scales across replicas | Yes (stateless) | Needs shared store (Redis) |
 
-The session store holds both the JWT access token (for forwarding to resource servers) and the user profile fetched from `/userinfo` at login time. Subsequent requests are just a store lookup — no per-request JWT verification or network calls.
+User info is fetched from `/userinfo` once at login and stored in the session. Subsequent requests are a plain store lookup — no Auth0 network calls on every page.
 
-The in-memory store in `lib/session-store.ts` is intentionally simple to swap out. Replace `createSession`, `getSessionData`, and `deleteSessionData` with Redis calls and nothing else in the codebase changes.
+Session expiry is entirely the app's responsibility. The default is 7 days, set in two places that must match: the cookie `maxAge` and the store TTL in `lib/session-store.ts`.
+
+The in-memory store is intentionally simple to swap out. Replace `createSession`, `getSessionData`, and `deleteSessionData` with Redis calls and nothing else in the codebase changes.
 
 ---
 
@@ -121,7 +112,6 @@ The in-memory store in `lib/session-store.ts` is intentionally simple to swap ou
 ```
 ├── middleware.ts              Edge-layer guard: redirects /dashboard and /profile if no session cookie
 ├── lib/
-│   ├── auth.ts                verifyToken() — validates JWT against Auth0 JWKS using jose
 │   ├── openapi.ts             OpenAPI 3.0 spec for all API endpoints
 │   ├── session-store.ts       In-memory session store (swap for Redis/DB in production)
 │   └── session.ts             getSession() / requireSession() — for Server Components
@@ -132,11 +122,9 @@ The in-memory store in `lib/session-store.ts` is intentionally simple to swap ou
     ├── profile/page.tsx       Protected Client Component — fetches from /api/auth/me
     └── api/
         ├── auth/login/        Redirects to Auth0 /authorize with a CSRF state cookie
-        ├── auth/callback/     Exchanges code → JWT + /userinfo, stores both in session, sets session_id cookie
+        ├── auth/callback/     Exchanges code for tokens, fetches /userinfo, stores session
         ├── auth/logout/       Deletes session from store, clears cookie, redirects to Auth0 /v2/logout
-        ├── auth/me/           Returns cached user profile from session store (session cookie)
-        └── resource/          Resource server endpoints — accept Authorization: Bearer JWT
-            └── protected/     Example: verifies JWT via Auth0 JWKS and returns protected data
+        └── auth/me/           Returns cached user profile from session store
 ```
 
 ---
@@ -155,7 +143,7 @@ export default async function DashboardPage() {
 }
 ```
 
-`requireSession()` reads the session ID cookie and looks up the session in the store — the user profile is available immediately with no additional network calls.
+`requireSession()` reads the session ID cookie and looks up the session in the store — the user profile is available immediately with no network calls.
 
 ### Client Component
 
@@ -167,53 +155,7 @@ useEffect(() => {
 }, []);
 ```
 
-Client Components can't access the session store directly, so they call a Next.js API route which resolves the session and returns only the data the browser needs.
-
-### BFF API route (proxying to a resource server)
-
-The browser sends a session cookie. The Next.js BFF route looks up the JWT and forwards it as a Bearer token. The resource server verifies the JWT on its end — the browser never sees the token or the resource server URL.
-
-```ts
-// app/api/your-bff-route/route.ts
-import { getSessionData } from '@/lib/session-store';
-
-export async function GET(request: NextRequest) {
-  const sessionId = request.cookies.get('session_id')?.value;
-  if (!sessionId) return NextResponse.json({ error: 'Not authenticated' }, { status: 401 });
-
-  const data = getSessionData(sessionId);
-  if (!data) return NextResponse.json({ error: 'Session not found' }, { status: 401 });
-
-  const res = await fetch(`${process.env.RESOURCE_SERVER_URL}/endpoint`, {
-    headers: { Authorization: `Bearer ${data.token}` },
-  });
-
-  return NextResponse.json(await res.json());
-}
-```
-
-### Resource server endpoint
-
-Endpoints under `/api/resource/*` accept a Bearer JWT directly and verify it against Auth0's JWKS — no session store involved. This is the pattern for any service that needs to validate tokens independently.
-
-```ts
-// app/api/resource/your-endpoint/route.ts
-import { verifyToken } from '@/lib/auth';
-
-export async function GET(request: NextRequest) {
-  const token = request.headers.get('authorization')?.slice(7);
-  if (!token) return NextResponse.json({ error: 'Missing Bearer token' }, { status: 401 });
-
-  try {
-    const payload = await verifyToken(token);
-    return NextResponse.json({ sub: payload.sub, data: '...' });
-  } catch {
-    return NextResponse.json({ error: 'Invalid or expired token' }, { status: 401 });
-  }
-}
-```
-
-See `/docs` for the interactive Swagger UI where you can paste a JWT and test all endpoints.
+Client Components can't access the session store directly, so they call `/api/auth/me` which resolves the session and returns the user profile.
 
 ---
 
@@ -237,22 +179,7 @@ auth0 apps create \
   --reveal-secrets \
   --json
 # → note down client_id, client_secret, and the domain from the output
-
-# 3. Create an API resource server (gives you a verifiable JWT access token)
-auth0 apis create \
-  --name "local" \
-  --identifier "http://localhost:3000" \
-  --json
-# → note down the id field
-
-# 4. Skip the Auth0 consent screen for first-party apps
-#    skip_consent handles database users; allow_all user policy handles social logins
-auth0 api patch "resource-servers/<API_ID>" \
-  --data '{"skip_consent_for_verifiable_first_party_clients":true,"subject_type_authorization":{"user":{"policy":"allow_all"},"client":{"policy":"require_client_grant"}}}'
 ```
-
-> **Note:** If you use social login (Google etc.) via Auth0's built-in dev credentials, Google will still show its own consent screen on first login. To suppress it, create a Google OAuth app in Google Cloud Console and add the credentials to your Auth0 tenant under **Authentication → Social → Google**.
-
 
 Then fill in your `.env.local`:
 
@@ -264,7 +191,6 @@ cp .env.example .env.local
 AUTH0_DOMAIN=<your-tenant>.auth0.com
 AUTH0_CLIENT_ID=<client_id from step 2>
 AUTH0_CLIENT_SECRET=<client_secret from step 2>
-AUTH0_AUDIENCE=http://localhost:3000
 AUTH0_SCOPE=openid profile email
 APP_BASE_URL=http://localhost:3000
 ```
@@ -287,17 +213,7 @@ Sign up at [auth0.com](https://auth0.com) — no credit card required.
    - **Allowed Web Origins:** `http://localhost:3000`
 4. Copy **Domain**, **Client ID**, and **Client Secret** into your `.env.local`
 
-#### 3. Create an Auth0 API
-
-Without an audience, Auth0 issues an opaque access token that cannot be forwarded to or verified by resource servers. With one, it issues a signed JWT.
-
-1. Dashboard → **APIs** → **Create API**
-2. Set an **Identifier** — any URL-style string, e.g. `https://myapp.example.com`
-3. This identifier becomes your `AUTH0_AUDIENCE` env var
-4. Dashboard → **APIs** → select the API you just created → **Application Access** → enable your application
-5. On the same page → **Settings** → enable **Allow Skipping User Consent** to suppress the consent screen for first-party apps
-
-#### 4. Configure environment variables
+#### 3. Configure environment variables
 
 ```bash
 cp .env.example .env.local
@@ -307,7 +223,6 @@ cp .env.example .env.local
 AUTH0_DOMAIN=your-tenant.auth0.com
 AUTH0_CLIENT_ID=your-client-id
 AUTH0_CLIENT_SECRET=your-client-secret
-AUTH0_AUDIENCE=https://myapp.example.com   # from step 3
 AUTH0_SCOPE=openid profile email
 APP_BASE_URL=http://localhost:3000
 ```
@@ -357,12 +272,12 @@ The in-memory session store works for a single pod. For multiple replicas, repla
 | Concern | How it's handled |
 |---|---|
 | CSRF on the callback | `state` parameter — random UUID in a short-lived HTTP-only cookie, verified on return |
-| JWT never reaches browser | JWT lives in the server-side session store — only an opaque session ID is sent to the client |
+| User data never reaches browser | Profile is stored server-side — only an opaque session ID is sent to the client |
 | XSS token theft | Session ID cookie is `httpOnly` — inaccessible to JavaScript |
-| Token expiry | `jwtVerify` (jose) rejects expired tokens; session resolves to null, user redirected to `/` |
+| Session expiry | TTL enforced in `lib/session-store.ts`; expired sessions are deleted on access |
 | Session revocation | Delete the session ID from the store to immediately invalidate access |
 | Auth0 session invalidation | Logout hits `/v2/logout` so Auth0's own session is cleared, preventing silent re-auth |
-| Unverified middleware | Middleware checks session cookie presence only (edge-fast); full cryptographic verification happens in API routes and Server Components |
+| Unverified middleware | Middleware checks session cookie presence only (edge-fast); full session lookup happens in API routes and Server Components |
 
 ---
 

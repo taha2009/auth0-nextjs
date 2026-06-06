@@ -57,14 +57,13 @@ export async function GET(request: NextRequest) {
     }
 
     const user = await userInfoRes.json();
-    const sessionId = await createSession(
-      { sub: user.sub, name: user.name, email: user.email, picture: user.picture, nickname: user.nickname },
-      {
-        accessToken: tokens.access_token,
-        refreshToken: tokens.refresh_token,
-        accessTokenExpiresAt: new Date(Date.now() + tokens.expires_in * 1000),
-      }
-    );
+    const sessionId = await createSession({
+      sub: user.sub,
+      name: user.name,
+      email: user.email,
+      picture: user.picture,
+      nickname: user.nickname,
+    });
 
     const response = NextResponse.redirect(`${APP_BASE_URL}/dashboard`);
     response.cookies.set('auth_state', '', { maxAge: 0, path: '/' });

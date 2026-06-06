@@ -9,23 +9,14 @@ export type UserInfo = {
   nickname?: string;
 };
 
-export type SessionTokens = {
-  accessToken: string;
-  refreshToken?: string;
-  accessTokenExpiresAt: Date;
-};
-
 export type SessionData = {
   user: UserInfo;
   createdAt: Date;
-} & SessionTokens;
+};
 
 type SessionDocument = {
   _id: string;
   user: UserInfo;
-  accessToken: string;
-  refreshToken?: string;
-  accessTokenExpiresAt: Date;
   createdAt: Date;
   expiresAt: Date;
 };
@@ -47,47 +38,24 @@ async function getCollection(): Promise<Collection<SessionDocument>> {
   return col;
 }
 
-export async function createSession(user: UserInfo, tokens: SessionTokens): Promise<string> {
+export async function createSession(user: UserInfo): Promise<string> {
   const col = await getCollection();
   const sessionId = crypto.randomUUID();
   const now = new Date();
   await col.insertOne({
     _id: sessionId,
     user,
-    accessToken: tokens.accessToken,
-    refreshToken: tokens.refreshToken,
-    accessTokenExpiresAt: tokens.accessTokenExpiresAt,
     createdAt: now,
     expiresAt: new Date(now.getTime() + SESSION_TTL_MS),
   });
   return sessionId;
 }
 
-export async function updateSessionTokens(sessionId: string, tokens: SessionTokens): Promise<void> {
-  const col = await getCollection();
-  await col.updateOne(
-    { _id: sessionId },
-    {
-      $set: {
-        accessToken: tokens.accessToken,
-        refreshToken: tokens.refreshToken,
-        accessTokenExpiresAt: tokens.accessTokenExpiresAt,
-      },
-    }
-  );
-}
-
 export async function getSessionData(sessionId: string): Promise<SessionData | null> {
   const col = await getCollection();
   const doc = await col.findOne({ _id: sessionId });
   if (!doc) return null;
-  return {
-    user: doc.user,
-    accessToken: doc.accessToken,
-    refreshToken: doc.refreshToken,
-    accessTokenExpiresAt: doc.accessTokenExpiresAt,
-    createdAt: doc.createdAt,
-  };
+  return { user: doc.user, createdAt: doc.createdAt };
 }
 
 export async function deleteSessionData(sessionId: string): Promise<void> {

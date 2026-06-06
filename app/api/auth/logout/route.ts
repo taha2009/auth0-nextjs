@@ -10,7 +10,7 @@ export async function GET(request: NextRequest) {
 
   // Remove the session from the server-side store
   const sessionId = request.cookies.get('session_id')?.value;
-  if (sessionId) deleteSessionData(sessionId);
+  if (sessionId) await deleteSessionData(sessionId);
 
   const params = new URLSearchParams({
     client_id: AUTH0_CLIENT_ID,

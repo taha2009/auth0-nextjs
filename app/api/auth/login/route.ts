@@ -16,7 +16,7 @@ export async function GET() {
     response_type: 'code',
     client_id: AUTH0_CLIENT_ID,
     redirect_uri: `${APP_BASE_URL}/api/auth/callback`,
-    scope: AUTH0_SCOPE || 'openid profile email',
+    scope: AUTH0_SCOPE || 'openid profile email offline_access',
     state,
   });
 

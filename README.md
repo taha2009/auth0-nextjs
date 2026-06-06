@@ -191,6 +191,7 @@ AUTH0_CLIENT_ID=<client_id from step 2>
 AUTH0_CLIENT_SECRET=<client_secret from step 2>
 AUTH0_SCOPE=openid profile email
 APP_BASE_URL=http://localhost:3000
+SESSION_SECRET=<run: node -e "console.log(require('crypto').randomBytes(32).toString('hex'))">
 ```
 
 ---
@@ -223,6 +224,7 @@ AUTH0_CLIENT_ID=your-client-id
 AUTH0_CLIENT_SECRET=your-client-secret
 AUTH0_SCOPE=openid profile email
 APP_BASE_URL=http://localhost:3000
+SESSION_SECRET=<run: node -e "console.log(require('crypto').randomBytes(32).toString('hex'))">
 ```
 
 ---

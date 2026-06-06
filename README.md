@@ -50,6 +50,8 @@ Open [http://localhost:3000](http://localhost:3000). Done.
 
 > **New to Auth0?** See [Setup](#setup) below for a 5-minute walkthrough of creating a free Auth0 account and getting your credentials.
 
+[![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/new/clone?repository-url=https%3A%2F%2Fgithub.com%2Ftaha2009%2Fauth0-nextjs&env=AUTH0_DOMAIN,AUTH0_CLIENT_ID,AUTH0_CLIENT_SECRET,AUTH0_SCOPE,APP_BASE_URL,SESSION_SECRET&envDescription=Auth0%20credentials%2C%20your%20app%20URL%2C%20and%20a%20random%20session%20secret&project-name=auth0-nextjs&repository-name=auth0-nextjs)
+
 ---
 
 ## Architecture

@@ -193,7 +193,8 @@ AUTH0_CLIENT_ID=<client_id from step 2>
 AUTH0_CLIENT_SECRET=<client_secret from step 2>
 AUTH0_SCOPE=openid profile email
 APP_BASE_URL=http://localhost:3000
-MONGODB_URI=mongodb+srv://<user>:<password>@<cluster>.mongodb.net/<dbname>?retryWrites=true&w=majority
+MONGODB_URI=mongodb+srv://<user>:<password>@<cluster>.mongodb.net/?retryWrites=true&w=majority
+MONGODB_DATABASE=auth0-nextjs
 ```
 
 ---
@@ -226,7 +227,8 @@ AUTH0_CLIENT_ID=your-client-id
 AUTH0_CLIENT_SECRET=your-client-secret
 AUTH0_SCOPE=openid profile email
 APP_BASE_URL=http://localhost:3000
-MONGODB_URI=mongodb+srv://<user>:<password>@<cluster>.mongodb.net/<dbname>?retryWrites=true&w=majority
+MONGODB_URI=mongodb+srv://<user>:<password>@<cluster>.mongodb.net/?retryWrites=true&w=majority
+MONGODB_DATABASE=auth0-nextjs
 ```
 
 ---

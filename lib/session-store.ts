@@ -30,7 +30,7 @@ declare global {
 
 async function getCollection(): Promise<Collection<SessionDocument>> {
   await client.connect();
-  const col = client.db().collection<SessionDocument>('sessions');
+  const col = client.db(process.env.MONGODB_DATABASE).collection<SessionDocument>('sessions');
   if (!globalThis._sessionIndexEnsured) {
     await col.createIndex({ expiresAt: 1 }, { expireAfterSeconds: 0 });
     globalThis._sessionIndexEnsured = true;

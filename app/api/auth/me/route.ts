@@ -7,7 +7,7 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: 'Not authenticated' }, { status: 401 });
   }
 
-  const data = getSessionData(sessionId);
+  const data = await getSessionData(sessionId);
   if (!data) {
     return NextResponse.json({ error: 'Session not found' }, { status: 401 });
   }

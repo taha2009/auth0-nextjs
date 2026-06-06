@@ -57,7 +57,7 @@ export async function GET(request: NextRequest) {
     }
 
     const user = await userInfoRes.json();
-    const sessionId = createSession({
+    const sessionId = await createSession({
       sub: user.sub,
       name: user.name,
       email: user.email,

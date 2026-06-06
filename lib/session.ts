@@ -13,7 +13,7 @@ export async function getSession(): Promise<Session | null> {
   const sessionId = cookieStore.get('session_id')?.value;
   if (!sessionId) return null;
 
-  const data = getSessionData(sessionId);
+  const data = await getSessionData(sessionId);
   if (!data) return null;
 
   return { sessionId, user: data.user };
